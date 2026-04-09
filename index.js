@@ -11,12 +11,12 @@ const {
 
 const express = require('express');
 
-// ====== Web server (عشان Render + UptimeRobot) ======
+// ===== Web server (Render + UptimeRobot) =====
 const app = express();
 app.get('/', (req, res) => res.send('Bot is alive 🔥'));
 app.listen(3000, () => console.log('Web server running'));
 
-// ====== Discord Client ======
+// ===== Discord Client =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -25,17 +25,21 @@ const client = new Client({
   ]
 });
 
-// ====== Data (مؤقت - لاحقاً نربطه بقاعدة بيانات) ======
+// ===== Data =====
 let users = {};
 
-// ====== Commands ======
+// ===== Commands =====
 const commands = [
   new SlashCommandBuilder()
     .setName('top')
-    .setDescription('عرض افضل 10 لاعبين XP')
+    .setDescription('عرض افضل 10 لاعبين'),
+
+  new SlashCommandBuilder()
+    .setName('rank')
+    .setDescription('عرض رتبتك')
 ].map(cmd => cmd.toJSON());
 
-// ====== Register Commands ======
+// ===== Register Commands =====
 const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
 (async () => {
@@ -50,7 +54,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
   }
 })();
 
-// ====== XP System ======
+// ===== XP System =====
 client.on('messageCreate', message => {
   if (message.author.bot) return;
 
@@ -73,20 +77,22 @@ client.on('messageCreate', message => {
   }
 });
 
-// ====== Slash Commands ======
+// ===== Commands =====
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
+  // ===== TOP =====
   if (interaction.commandName === 'top') {
+
     let sorted = Object.entries(users)
       .sort((a, b) => b[1].xp - a[1].xp)
       .slice(0, 10);
 
     let description = sorted.map((user, index) => {
       let medal = index === 0 ? '👑' : `#${index + 1}`;
-      let colorEmoji = index === 0 ? '🟡' : index === 1 ? '⚪' : index === 2 ? '🟤' : '🔵';
+      let color = index === 0 ? '🟡' : index === 1 ? '⚪' : index === 2 ? '🟤' : '🔵';
 
-      return `${medal} ${colorEmoji} <@${user[0]}> | Level: ${user[1].level} | XP: ${user[1].xp}`;
+      return `${medal} ${color} <@${user[0]}> | Level: ${user[1].level} | XP: ${user[1].xp}`;
     }).join('\n');
 
     const embed = new EmbedBuilder()
@@ -96,12 +102,39 @@ client.on('interactionCreate', async interaction => {
 
     interaction.reply({ embeds: [embed] });
   }
+
+  // ===== RANK =====
+  if (interaction.commandName === 'rank') {
+
+    let user = interaction.user;
+
+    if (!users[user.id]) {
+      users[user.id] = { xp: 0, level: 1 };
+    }
+
+    let data = users[user.id];
+    let neededXP = data.level * 100;
+    let progress = ((data.xp / neededXP) * 100).toFixed(1);
+
+    const embed = new EmbedBuilder()
+      .setColor('#8e44ad')
+      .setTitle(`🔥 Rank - ${user.username}`)
+      .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+      .addFields(
+        { name: '💎 Level', value: `${data.level}`, inline: true },
+        { name: '⚡ XP', value: `${data.xp} / ${neededXP}`, inline: true },
+        { name: '📊 Progress', value: `${progress}%`, inline: true }
+      )
+      .setFooter({ text: 'TrapHouse XP System 👑' });
+
+    interaction.reply({ embeds: [embed] });
+  }
 });
 
-// ====== Ready ======
+// ===== Ready =====
 client.once('ready', () => {
   console.log(`🔥 Logged in as ${client.user.tag}`);
 });
 
-// ====== Login ======
+// ===== Login =====
 client.login(process.env.TOKEN);
