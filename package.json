@@ -16,5 +16,13 @@
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "fs": "^0.0.1-security"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imyousefx/traphouse-xp-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/imyousefx/traphouse-xp-bot/issues"
+  },
+  "homepage": "https://github.com/imyousefx/traphouse-xp-bot#readme"
 }
