@@ -1,164 +1,107 @@
-// 🔥 Web Server (عشان Render + UptimeRobot)
-const express = require('express');
-const app = express();
-
-app.get('/', (req, res) => {
-  res.send('Bot is alive 🔥');
-});
-
-app.listen(3000, () => {
-  console.log('Web server running');
-});
-
-// 🔽 باقي الكود
 require('dotenv').config();
 
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, AttachmentBuilder, EmbedBuilder } = require('discord.js');
-const { createCanvas, loadImage } = require('canvas');
-const fs = require('fs');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  SlashCommandBuilder, 
+  REST, 
+  Routes, 
+  EmbedBuilder 
+} = require('discord.js');
 
-// 🔐 بيانات
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
+const express = require('express');
 
-// 📁 قاعدة البيانات
-let data = {};
-if (fs.existsSync('data.json')) {
-  data = JSON.parse(fs.readFileSync('data.json'));
-}
+// ====== Web server (عشان Render + UptimeRobot) ======
+const app = express();
+app.get('/', (req, res) => res.send('Bot is alive 🔥'));
+app.listen(3000, () => console.log('Web server running'));
 
-// 🎮 البوت
+// ====== Discord Client ======
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
   ]
 });
 
-// 🧠 نظام XP
-function addXP(userId, amount) {
-  if (!data[userId]) {
-    data[userId] = { xp: 0, level: 1 };
-  }
+// ====== Data (مؤقت - لاحقاً نربطه بقاعدة بيانات) ======
+let users = {};
 
-  data[userId].xp += amount;
-
-  let needed = data[userId].level * 200;
-
-  if (data[userId].xp >= needed) {
-    data[userId].xp = 0;
-    data[userId].level++;
-  }
-
-  fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-}
-
-// 🎤 XP صوتي
-setInterval(() => {
-  client.guilds.cache.forEach(guild => {
-    guild.members.cache.forEach(member => {
-      if (
-        member.voice.channel &&
-        !member.voice.selfDeaf &&
-        !member.voice.serverDeaf
-      ) {
-        addXP(member.id, 5);
-      }
-    });
-  });
-}, 60000);
-
-// 🧾 أوامر
+// ====== Commands ======
 const commands = [
   new SlashCommandBuilder()
-    .setName('rank')
-    .setDescription('Show your rank'),
-
-  new SlashCommandBuilder()
     .setName('top')
-    .setDescription('Top players')
-];
+    .setDescription('عرض افضل 10 لاعبين XP')
+].map(cmd => cmd.toJSON());
 
-const rest = new REST({ version: '10' }).setToken(TOKEN);
+// ====== Register Commands ======
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
 
-// 📡 تسجيل الأوامر
 (async () => {
   try {
     await rest.put(
-      Routes.applicationCommands(CLIENT_ID),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
-    console.log('Slash commands registered');
-  } catch (err) {
-    console.error(err);
+    console.log('✅ Slash commands registered');
+  } catch (error) {
+    console.error(error);
   }
 })();
 
-// 🚀 عند تشغيل البوت
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
+// ====== XP System ======
+client.on('messageCreate', message => {
+  if (message.author.bot) return;
+
+  if (!users[message.author.id]) {
+    users[message.author.id] = {
+      xp: 0,
+      level: 1
+    };
+  }
+
+  users[message.author.id].xp += 10;
+
+  let neededXP = users[message.author.id].level * 100;
+
+  if (users[message.author.id].xp >= neededXP) {
+    users[message.author.id].level++;
+    users[message.author.id].xp = 0;
+
+    message.channel.send(`🔥 ${message.author} لفلت لـ ${users[message.author.id].level}`);
+  }
 });
 
-// 🧾 تنفيذ الأوامر
+// ====== Slash Commands ======
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const userId = interaction.user.id;
-
-  if (!data[userId]) {
-    data[userId] = { xp: 0, level: 1 };
-  }
-
-  // 🧍 /rank
-  if (interaction.commandName === 'rank') {
-    const canvas = createCanvas(800, 250);
-    const ctx = canvas.getContext('2d');
-
-    // خلفية
-    ctx.fillStyle = '#1e1e2f';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // اسم
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '30px Arial';
-    ctx.fillText(interaction.user.username, 250, 80);
-
-    // لفل
-    ctx.font = '25px Arial';
-    ctx.fillText(`Level: ${data[userId].level}`, 250, 130);
-    ctx.fillText(`XP: ${data[userId].xp}`, 250, 170);
-
-    // صورة
-    const avatar = await loadImage(interaction.user.displayAvatarURL({ extension: 'png' }));
-    ctx.drawImage(avatar, 50, 50, 150, 150);
-
-    const attachment = new AttachmentBuilder(canvas.toBuffer(), { name: 'rank.png' });
-
-    await interaction.reply({ files: [attachment] });
-  }
-
-  // 🏆 /top
   if (interaction.commandName === 'top') {
-    const sorted = Object.entries(data)
-      .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
+    let sorted = Object.entries(users)
+      .sort((a, b) => b[1].xp - a[1].xp)
       .slice(0, 10);
+
+    let description = sorted.map((user, index) => {
+      let medal = index === 0 ? '👑' : `#${index + 1}`;
+      let colorEmoji = index === 0 ? '🟡' : index === 1 ? '⚪' : index === 2 ? '🟤' : '🔵';
+
+      return `${medal} ${colorEmoji} <@${user[0]}> | Level: ${user[1].level} | XP: ${user[1].xp}`;
+    }).join('\n');
 
     const embed = new EmbedBuilder()
       .setTitle('🏆 Top Players')
-      .setColor('#a855f7');
+      .setDescription(description || 'مافي بيانات')
+      .setColor('#8e44ad');
 
-    let desc = '';
-
-    sorted.forEach((user, i) => {
-      desc += `**#${i + 1}** <@${user[0]}> — Lv.${user[1].level} | XP: ${user[1].xp}\n`;
-    });
-
-    embed.setDescription(desc);
-
-    await interaction.reply({ embeds: [embed] });
+    interaction.reply({ embeds: [embed] });
   }
 });
 
-// 🔐 تشغيل البوت
-client.login(TOKEN);
+// ====== Ready ======
+client.once('ready', () => {
+  console.log(`🔥 Logged in as ${client.user.tag}`);
+});
+
+// ====== Login ======
+client.login(process.env.TOKEN);
