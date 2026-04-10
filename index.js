@@ -1,12 +1,4 @@
-const { 
-    Client, 
-    GatewayIntentBits, 
-    Partials, 
-    REST, 
-    Routes, 
-    SlashCommandBuilder 
-} = require('discord.js');
-
+const { Client, GatewayIntentBits, Partials, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
 
 const client = new Client({
@@ -23,7 +15,6 @@ const client = new Client({
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
-// 🔍 Debug
 console.log("TOKEN:", TOKEN ? "OK" : "MISSING");
 console.log("CLIENT_ID:", CLIENT_ID);
 
@@ -44,7 +35,7 @@ function ensureUser(id) {
     }
 }
 
-// ===== XP =====
+// ===== XP SYSTEM =====
 
 function xpNeeded(level) {
     return 4 * (level ** 2) + 40 * level + 120;
@@ -70,7 +61,7 @@ function addXP(member, amount) {
     save();
 }
 
-// ===== ROLES (جاهزة 🔥) =====
+// ===== ROLES =====
 
 const levelRoles = {
     1: "1491539811838722059",
@@ -100,6 +91,7 @@ async function updateUserRole(member, level) {
     if (!newRole) return;
 
     const allRoles = Object.values(levelRoles);
+
     const toRemove = member.roles.cache.filter(r => allRoles.includes(r.id));
 
     await member.roles.remove(toRemove);
@@ -123,7 +115,7 @@ client.on('messageCreate', msg => {
     addXP(msg.member, xp);
 });
 
-// ===== VOICE SYSTEM (🔥 مضمون) =====
+// ===== VOICE SYSTEM (FIXED FINAL 🔥) =====
 
 const voiceUsers = new Map();
 
@@ -144,35 +136,35 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-setInterval(() => {
-    voiceUsers.forEach((channelId, userId) => {
+setInterval(async () => {
+    for (const [userId, channelId] of voiceUsers) {
 
         const guild = client.guilds.cache.first();
-        if (!guild) return;
+        if (!guild) continue;
 
-        const member = guild.members.cache.get(userId);
+        const member = await guild.members.fetch(userId).catch(() => null);
+        if (!member) continue;
+
         const channel = guild.channels.cache.get(channelId);
+        if (!channel) continue;
 
-        if (!member || !channel) return;
-
-        if (channel.members.size <= 1) return;
+        if (channel.members.size <= 1) continue;
 
         if (
             member.voice.selfMute ||
             member.voice.selfDeaf ||
             member.voice.serverMute ||
             member.voice.serverDeaf
-        ) return;
+        ) continue;
 
         let xp = Math.floor(Math.random() * 5) + 6;
 
         if (channel.members.size >= 3) xp += 3;
 
-        console.log(`VOICE XP ✔ ${member.user.username} +${xp}`);
+        console.log(`XP ✔ ${member.user.username} +${xp}`);
 
         addXP(member, xp);
-
-    });
+    }
 }, 60000);
 
 // ===== SLASH COMMANDS =====
@@ -225,5 +217,4 @@ client.on('interactionCreate', async i => {
     }
 });
 
-// ===== START =====
 client.login(TOKEN);
