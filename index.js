@@ -1,4 +1,12 @@
-const { Client, GatewayIntentBits, Partials, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    Partials, 
+    REST, 
+    Routes, 
+    SlashCommandBuilder 
+} = require('discord.js');
+
 const fs = require('fs');
 
 const client = new Client({
@@ -11,8 +19,13 @@ const client = new Client({
     partials: [Partials.Channel]
 });
 
-const TOKEN = "YOUR_BOT_TOKEN";
-const CLIENT_ID = "YOUR_CLIENT_ID";
+// ===== ENV =====
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+
+// 🔍 Debug
+console.log("TOKEN:", TOKEN ? "OK" : "MISSING");
+console.log("CLIENT_ID:", CLIENT_ID);
 
 // ===== DATABASE =====
 let data = {};
@@ -57,7 +70,7 @@ function addXP(member, amount) {
     save();
 }
 
-// ===== ROLES (IDs تبعك جاهزة) =====
+// ===== ROLES (جاهزة 🔥) =====
 
 const levelRoles = {
     1: "1491539811838722059",
@@ -87,7 +100,6 @@ async function updateUserRole(member, level) {
     if (!newRole) return;
 
     const allRoles = Object.values(levelRoles);
-
     const toRemove = member.roles.cache.filter(r => allRoles.includes(r.id));
 
     await member.roles.remove(toRemove);
@@ -111,7 +123,7 @@ client.on('messageCreate', msg => {
     addXP(msg.member, xp);
 });
 
-// ===== VOICE SYSTEM (🔥 الحل النهائي) =====
+// ===== VOICE SYSTEM (🔥 مضمون) =====
 
 const voiceUsers = new Map();
 
@@ -173,10 +185,17 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 (async () => {
+    if (!TOKEN || !CLIENT_ID) {
+        console.log("❌ ENV ERROR");
+        return;
+    }
+
     await rest.put(
         Routes.applicationCommands(CLIENT_ID),
         { body: commands }
     );
+
+    console.log("✅ Commands Registered");
 })();
 
 // ===== INTERACTIONS =====
@@ -206,4 +225,5 @@ client.on('interactionCreate', async i => {
     }
 });
 
+// ===== START =====
 client.login(TOKEN);
