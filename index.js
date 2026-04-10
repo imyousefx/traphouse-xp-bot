@@ -1,14 +1,5 @@
-const { 
-    Client, 
-    GatewayIntentBits, 
-    Partials, 
-    REST, 
-    Routes, 
-    SlashCommandBuilder 
-} = require('discord.js');
-
+const { Client, GatewayIntentBits, Partials, REST, Routes, SlashCommandBuilder } = require('discord.js');
 const fs = require('fs');
-const { createCanvas, loadImage } = require('canvas');
 
 const client = new Client({
     intents: [
@@ -36,36 +27,21 @@ function save() {
 
 function ensureUser(id) {
     if (!data[id]) {
-        data[id] = {
-            xp: 0,
-            level: 0,
-            coins: 0,
-            lastDaily: 0
-        };
+        data[id] = { xp: 0, level: 0 };
     }
 }
 
-// ===== XP SYSTEM =====
+// ===== XP =====
 
 function xpNeeded(level) {
     return 4 * (level ** 2) + 40 * level + 120;
 }
 
-function applyBoost(member, xp) {
-    if (member.roles.cache.has("1491539598449574030")) xp *= 1.1;
-    if (member.roles.cache.has("1491539563938844672")) xp *= 1.15;
-    if (member.roles.cache.has("1491539446678552768")) xp *= 1.25;
-
-    return Math.floor(xp);
-}
-
 function addXP(member, amount) {
     const id = member.id;
-
     ensureUser(id);
 
     data[id].xp += amount;
-    data[id].coins += Math.floor(amount / 2);
 
     let needed = xpNeeded(data[id].level);
 
@@ -81,7 +57,7 @@ function addXP(member, amount) {
     save();
 }
 
-// ===== ROLES =====
+// ===== ROLES (IDs تبعك جاهزة) =====
 
 const levelRoles = {
     1: "1491539811838722059",
@@ -132,44 +108,58 @@ client.on('messageCreate', msg => {
 
     let xp = Math.floor(Math.random() * 8) + 12;
 
-    xp = applyBoost(msg.member, xp);
-
     addXP(msg.member, xp);
 });
 
-// ===== VOICE XP (FIXED 🔥) =====
+// ===== VOICE SYSTEM (🔥 الحل النهائي) =====
+
+const voiceUsers = new Map();
+
+client.on('voiceStateUpdate', (oldState, newState) => {
+    const member = newState.member;
+    if (!member || member.user.bot) return;
+
+    if (!oldState.channel && newState.channel) {
+        voiceUsers.set(member.id, newState.channel.id);
+    }
+
+    if (oldState.channel && !newState.channel) {
+        voiceUsers.delete(member.id);
+    }
+
+    if (oldState.channel && newState.channel) {
+        voiceUsers.set(member.id, newState.channel.id);
+    }
+});
 
 setInterval(() => {
-    client.guilds.cache.forEach(guild => {
+    voiceUsers.forEach((channelId, userId) => {
 
-        guild.channels.cache
-            .filter(c => c.isVoiceBased())
-            .forEach(channel => {
+        const guild = client.guilds.cache.first();
+        if (!guild) return;
 
-                if (channel.members.size <= 1) return;
+        const member = guild.members.cache.get(userId);
+        const channel = guild.channels.cache.get(channelId);
 
-                channel.members.forEach(member => {
+        if (!member || !channel) return;
 
-                    if (!member || member.user.bot) return;
+        if (channel.members.size <= 1) return;
 
-                    if (
-                        member.voice.selfMute ||
-                        member.voice.selfDeaf ||
-                        member.voice.serverMute ||
-                        member.voice.serverDeaf
-                    ) return;
+        if (
+            member.voice.selfMute ||
+            member.voice.selfDeaf ||
+            member.voice.serverMute ||
+            member.voice.serverDeaf
+        ) return;
 
-                    let xp = Math.floor(Math.random() * 5) + 6;
+        let xp = Math.floor(Math.random() * 5) + 6;
 
-                    if (channel.members.size >= 3) xp += 3;
+        if (channel.members.size >= 3) xp += 3;
 
-                    xp = applyBoost(member, xp);
+        console.log(`VOICE XP ✔ ${member.user.username} +${xp}`);
 
-                    console.log(`+${xp} XP to ${member.user.username}`);
+        addXP(member, xp);
 
-                    addXP(member, xp);
-                });
-            });
     });
 }, 60000);
 
@@ -198,7 +188,6 @@ client.on('interactionCreate', async i => {
 
     if (i.commandName === "rank") {
         const user = data[i.user.id];
-
         return i.reply(`📊 Level: ${user.level}\nXP: ${user.xp}/${xpNeeded(user.level)}`);
     }
 
