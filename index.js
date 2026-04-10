@@ -1,126 +1,184 @@
-require('dotenv').config();
-
-const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Partials } = require('discord.js');
 const fs = require('fs');
-const express = require('express');
 
 const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildVoiceStates
+    ],
+    partials: [Partials.Channel]
 });
 
-const app = express();
-app.get('/', (req, res) => res.send('Bot is alive 🔥'));
-app.listen(3000, () => console.log('Web server running'));
+const TOKEN = "YOUR_BOT_TOKEN";
 
-let users = {};
-const cooldown = {};
+// ====== DATABASE (JSON) ======
+let data = {};
 
-// 📁 تحميل البيانات
 if (fs.existsSync('./data.json')) {
-  users = JSON.parse(fs.readFileSync('./data.json'));
+    data = JSON.parse(fs.readFileSync('./data.json'));
 }
 
 function saveData() {
-  fs.writeFileSync('./data.json', JSON.stringify(users, null, 2));
+    fs.writeFileSync('./data.json', JSON.stringify(data, null, 2));
 }
 
-// 🔥 XP SYSTEM
+// ====== XP SYSTEM ======
+
+function xpNeeded(level) {
+    return 4 * (level ** 2) + 40 * level + 120;
+}
+
+function applyBoost(member, xp) {
+    if (member.roles.cache.has("HUSTLER_ID")) xp *= 1.1;
+    if (member.roles.cache.has("GRINDER_ID")) xp *= 1.15;
+    if (member.roles.cache.has("TRAPSTAR_ID")) xp *= 1.25;
+
+    return Math.floor(xp);
+}
+
+function addXP(member, amount) {
+    const id = member.id;
+
+    if (!data[id]) {
+        data[id] = { xp: 0, level: 0 };
+    }
+
+    data[id].xp += amount;
+
+    let needed = xpNeeded(data[id].level);
+
+    let leveledUp = false;
+
+    while (data[id].xp >= needed) {
+        data[id].xp -= needed;
+        data[id].level++;
+        leveledUp = true;
+
+        needed = xpNeeded(data[id].level);
+    }
+
+    if (leveledUp) {
+        updateUserRole(member, data[id].level);
+    }
+
+    saveData();
+}
+
+// ====== ROLES ======
+
+const levelRoles = {
+    1: "1491539811838722059",
+    4: "1491539858584244244",
+    7: "1491539900313636936",
+    10: "1491539932546732164",
+    14: "1491539963337244752",
+    18: "1491539598449574030",
+    22: "1491539563938844672",
+    27: "1491539522247463072",
+    32: "1491539446678552768",
+    40: "1491539401854025798"
+};
+
+const allRanks = Object.values(levelRoles);
+
+async function updateUserRole(member, level) {
+    let newRoleId = null;
+
+    for (const lvl in levelRoles) {
+        if (level >= lvl) {
+            newRoleId = levelRoles[lvl];
+        }
+    }
+
+    if (!newRoleId) return;
+
+    const newRole = member.guild.roles.cache.get(newRoleId);
+    if (!newRole) return;
+
+    const rolesToRemove = member.roles.cache.filter(r => allRanks.includes(r.id));
+
+    await member.roles.remove(rolesToRemove);
+    await member.roles.add(newRole);
+}
+
+// ====== TEXT XP ======
+
+const cooldown = new Set();
+
 client.on('messageCreate', message => {
-  if (message.author.bot) return;
+    if (message.author.bot) return;
 
-  const userId = message.author.id;
+    const member = message.member;
+    const userId = message.author.id;
 
-  if (!users[userId]) {
-    users[userId] = { xp: 0, level: 1 };
-  } else {
-    users[userId].xp ??= 0;
-    users[userId].level ??= 1;
-  }
+    if (cooldown.has(userId)) return;
 
-  // ⏱️ Cooldown 15 ثانية
-  if (cooldown[userId] && Date.now() - cooldown[userId] < 15000) return;
-  cooldown[userId] = Date.now();
+    cooldown.add(userId);
+    setTimeout(() => cooldown.delete(userId), 20000);
 
-  // 💎 XP عشوائي
-  users[userId].xp += Math.floor(Math.random() * 10) + 5;
+    let xp = Math.floor(Math.random() * 8) + 12;
 
-  let neededXP = users[userId].level * 100;
+    xp = applyBoost(member, xp);
 
-  if (users[userId].xp >= neededXP) {
-    users[userId].level++;
-    users[userId].xp = 0;
-
-    message.channel.send(`🔥 ${message.author} لفلت لـ ${users[userId].level}`);
-  }
-
-  saveData();
+    addXP(member, xp);
 });
 
-// 🧠 COMMANDS
-client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
+// ====== VOICE XP ======
 
-  const userId = interaction.user.id;
+setInterval(() => {
+    client.guilds.cache.forEach(guild => {
+        guild.channels.cache.forEach(channel => {
+            if (!channel.isVoiceBased()) return;
 
-  if (!users[userId]) {
-    users[userId] = { xp: 0, level: 1 };
-  }
+            channel.members.forEach(member => {
+                if (
+                    channel.members.size > 1 &&
+                    !member.voice.selfMute &&
+                    !member.voice.selfDeaf &&
+                    !member.voice.serverMute &&
+                    !member.voice.serverDeaf
+                ) {
+                    let xp = Math.floor(Math.random() * 5) + 6;
 
-  // 🔥 RANK
-  if (interaction.commandName === 'rank') {
-    const xp = users[userId].xp;
-    const level = users[userId].level;
-    const neededXP = level * 100;
-    const progress = ((xp / neededXP) * 100).toFixed(1);
+                    if (channel.members.size >= 3) xp += 3;
 
-    const embed = new EmbedBuilder()
-      .setColor('#8e44ad')
-      .setTitle(`🔥 Rank - ${interaction.user.username}`)
-      .setThumbnail(interaction.user.displayAvatarURL())
-      .addFields(
-        { name: '💎 Level', value: `${level}`, inline: true },
-        { name: '⚡ XP', value: `${xp}/${neededXP}`, inline: true },
-        { name: '📊 Progress', value: `${progress}%`, inline: true }
-      );
+                    xp = applyBoost(member, xp);
 
-    interaction.reply({ embeds: [embed] });
-  }
+                    addXP(member, xp);
+                }
+            });
+        });
+    });
+}, 60000);
 
-  // 🏆 TOP
-  if (interaction.commandName === 'top') {
-    let sorted = Object.entries(users)
-      .map(([id, data]) => ({
-        id,
-        xp: data?.xp ?? 0,
-        level: data?.level ?? 1
-      }))
-      .sort((a, b) => b.xp - a.xp)
-      .slice(0, 10);
+// ====== COMMANDS ======
 
-    let description = sorted.map((user, index) => {
-      let medal = index === 0 ? '👑' : `#${index + 1}`;
-      let color = index === 0 ? '🟡' : index === 1 ? '⚪' : index === 2 ? '🟤' : '🔵';
+client.on('messageCreate', message => {
+    if (message.content === "!rank") {
+        const user = data[message.author.id];
 
-      return `${medal} ${color} <@${user.id}> | Level: ${user.level} | XP: ${user.xp}`;
-    }).join('\n');
+        if (!user) {
+            return message.reply("ما عندك XP بعد!");
+        }
 
-    const embed = new EmbedBuilder()
-      .setColor('#f1c40f')
-      .setTitle('🏆 Top Players')
-      .setDescription(description);
+        message.reply(`📊 Level: ${user.level}\nXP: ${user.xp}/${xpNeeded(user.level)}`);
+    }
 
-    interaction.reply({ embeds: [embed] });
-  }
+    if (message.content === "!top") {
+        const sorted = Object.entries(data)
+            .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
+            .slice(0, 10);
+
+        let msg = "🏆 Top 10:\n";
+
+        sorted.forEach((user, i) => {
+            msg += `${i + 1}. <@${user[0]}> - Level ${user[1].level}\n`;
+        });
+
+        message.reply(msg);
+    }
 });
 
-// ✅ READY
-client.once('ready', () => {
-  console.log(`✅ Logged in as ${client.user.tag}`);
-});
-
-// 🔐 LOGIN
-client.login(process.env.TOKEN);
+client.login(TOKEN);
