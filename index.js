@@ -7,8 +7,8 @@ const {
     SlashCommandBuilder 
 } = require('discord.js');
 
-const { createCanvas, loadImage } = require('canvas');
 const fs = require('fs');
+const { createCanvas, loadImage } = require('canvas');
 
 const client = new Client({
     intents: [
@@ -25,12 +25,24 @@ const CLIENT_ID = "YOUR_CLIENT_ID";
 
 // ===== DATABASE =====
 let data = {};
+
 if (fs.existsSync('./data.json')) {
     data = JSON.parse(fs.readFileSync('./data.json'));
 }
 
 function save() {
     fs.writeFileSync('./data.json', JSON.stringify(data, null, 2));
+}
+
+function ensureUser(id) {
+    if (!data[id]) {
+        data[id] = {
+            xp: 0,
+            level: 0,
+            coins: 0,
+            lastDaily: 0
+        };
+    }
 }
 
 // ===== XP SYSTEM =====
@@ -43,23 +55,14 @@ function applyBoost(member, xp) {
     if (member.roles.cache.has("1491539598449574030")) xp *= 1.1;
     if (member.roles.cache.has("1491539563938844672")) xp *= 1.15;
     if (member.roles.cache.has("1491539446678552768")) xp *= 1.25;
-    return Math.floor(xp);
-}
 
-function addUser(id) {
-    if (!data[id]) {
-        data[id] = {
-            xp: 0,
-            level: 0,
-            coins: 0,
-            lastDaily: 0
-        };
-    }
+    return Math.floor(xp);
 }
 
 function addXP(member, amount) {
     const id = member.id;
-    addUser(id);
+
+    ensureUser(id);
 
     data[id].xp += amount;
     data[id].coins += Math.floor(amount / 2);
@@ -69,14 +72,16 @@ function addXP(member, amount) {
     while (data[id].xp >= needed) {
         data[id].xp -= needed;
         data[id].level++;
+
         updateUserRole(member, data[id].level);
+
         needed = xpNeeded(data[id].level);
     }
 
     save();
 }
 
-// ===== ROLES (محفوظة 🔥) =====
+// ===== ROLES =====
 
 const levelRoles = {
     1: "1491539811838722059",
@@ -95,6 +100,7 @@ async function updateUserRole(member, level) {
     const sorted = Object.keys(levelRoles).map(Number).sort((a,b)=>a-b);
 
     let roleId = null;
+
     for (const lvl of sorted) {
         if (level >= lvl) roleId = levelRoles[lvl];
     }
@@ -122,102 +128,78 @@ client.on('messageCreate', msg => {
     if (cooldown.has(msg.author.id)) return;
 
     cooldown.add(msg.author.id);
-    setTimeout(()=>cooldown.delete(msg.author.id), 20000);
+    setTimeout(() => cooldown.delete(msg.author.id), 20000);
 
     let xp = Math.floor(Math.random() * 8) + 12;
+
     xp = applyBoost(msg.member, xp);
 
     addXP(msg.member, xp);
 });
 
-// ===== VOICE XP =====
+// ===== VOICE XP (FIXED 🔥) =====
 
-setInterval(()=>{
-    client.guilds.cache.forEach(guild=>{
-        guild.channels.cache.forEach(channel=>{
-            if (!channel.isVoiceBased()) return;
+setInterval(() => {
+    client.guilds.cache.forEach(guild => {
 
-            channel.members.forEach(member=>{
-                if (
-                    channel.members.size > 1 &&
-                    !member.voice.selfMute &&
-                    !member.voice.selfDeaf &&
-                    !member.voice.serverMute &&
-                    !member.voice.serverDeaf
-                ) {
+        guild.channels.cache
+            .filter(c => c.isVoiceBased())
+            .forEach(channel => {
+
+                if (channel.members.size <= 1) return;
+
+                channel.members.forEach(member => {
+
+                    if (!member || member.user.bot) return;
+
+                    if (
+                        member.voice.selfMute ||
+                        member.voice.selfDeaf ||
+                        member.voice.serverMute ||
+                        member.voice.serverDeaf
+                    ) return;
+
                     let xp = Math.floor(Math.random() * 5) + 6;
+
                     if (channel.members.size >= 3) xp += 3;
 
                     xp = applyBoost(member, xp);
+
+                    console.log(`+${xp} XP to ${member.user.username}`);
+
                     addXP(member, xp);
-                }
+                });
             });
-        });
     });
 }, 60000);
-
-// ===== RANK CARD =====
-
-async function createRankCard(member, user) {
-    const canvas = createCanvas(800, 250);
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = "#0f172a";
-    ctx.fillRect(0,0,800,250);
-
-    ctx.fillStyle = "#1e293b";
-    ctx.fillRect(200,180,500,25);
-
-    const needed = xpNeeded(user.level);
-    const progress = user.xp / needed;
-
-    ctx.fillStyle = "#22c55e";
-    ctx.fillRect(200,180,500 * progress,25);
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "28px sans-serif";
-    ctx.fillText(member.user.username,200,80);
-
-    ctx.font = "22px sans-serif";
-    ctx.fillText(`Level: ${user.level}`,200,120);
-    ctx.fillText(`${user.xp}/${needed}`,200,150);
-
-    const avatar = await loadImage(member.user.displayAvatarURL({extension:'png'}));
-    ctx.drawImage(avatar,40,40,120,120);
-
-    return canvas.toBuffer();
-}
 
 // ===== SLASH COMMANDS =====
 
 const commands = [
-    new SlashCommandBuilder().setName("rank").setDescription("Rank card"),
-    new SlashCommandBuilder().setName("top").setDescription("Leaderboard"),
-    new SlashCommandBuilder().setName("daily").setDescription("Daily reward")
+    new SlashCommandBuilder().setName("rank").setDescription("Rank"),
+    new SlashCommandBuilder().setName("top").setDescription("Top players")
 ];
 
-const rest = new REST({version:'10'}).setToken(TOKEN);
+const rest = new REST({ version: '10' }).setToken(TOKEN);
 
-(async()=>{
+(async () => {
     await rest.put(
         Routes.applicationCommands(CLIENT_ID),
-        {body: commands}
+        { body: commands }
     );
 })();
 
 // ===== INTERACTIONS =====
 
-client.on('interactionCreate', async i=>{
+client.on('interactionCreate', async i => {
     if (!i.isChatInputCommand()) return;
 
-    addUser(i.user.id);
+    ensureUser(i.user.id);
 
     if (i.commandName === "rank") {
-        const buffer = await createRankCard(i.member, data[i.user.id]);
+        const user = data[i.user.id];
 
-        return i.reply({
-            files:[{attachment:buffer,name:"rank.png"}]
-        });
+        return i.reply(`📊 Level: ${user.level}\nXP: ${user.xp}/${xpNeeded(user.level)}`);
     }
 
     if (i.commandName === "top") {
@@ -225,28 +207,13 @@ client.on('interactionCreate', async i=>{
             .sort((a,b)=>b[1].level - a[1].level || b[1].xp - a[1].xp)
             .slice(0,10);
 
-        let msg = "🏆 Top 10:\n";
+        let msg = "🏆 Top Players:\n";
+
         sorted.forEach((u,i)=>{
-            msg += `${i+1}. <@${u[0]}> - Lvl ${u[1].level}\n`;
+            msg += `${i+1}. <@${u[0]}> - Level ${u[1].level}\n`;
         });
 
         return i.reply(msg);
-    }
-
-    if (i.commandName === "daily") {
-        const user = data[i.user.id];
-        const now = Date.now();
-
-        if (now - user.lastDaily < 86400000) {
-            return i.reply({content:"⏳ رجع بكرا!", ephemeral:true});
-        }
-
-        user.lastDaily = now;
-        user.coins += 200;
-
-        save();
-
-        return i.reply("💰 أخذت 200 كوين!");
     }
 });
 
