@@ -1,35 +1,9 @@
 require('dotenv').config();
 
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
 const fs = require('fs');
-const { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes, 
-  EmbedBuilder 
-} = require('discord.js');
-
 const express = require('express');
 
-// ===== Web server =====
-const app = express();
-app.get('/', (req, res) => res.send('Bot is alive 🔥'));
-app.listen(3000, () => console.log('Web server running'));
-
-// ===== Load Data =====
-let users = {};
-
-if (fs.existsSync('./data.json')) {
-  users = JSON.parse(fs.readFileSync('./data.json'));
-}
-
-// ===== Save Function =====
-function saveData() {
-  fs.writeFileSync('./data.json', JSON.stringify(users, null, 2));
-}
-
-// ===== Discord Client =====
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -38,107 +12,115 @@ const client = new Client({
   ]
 });
 
-// ===== Commands =====
-const commands = [
-  new SlashCommandBuilder()
-    .setName('top')
-    .setDescription('عرض افضل 10 لاعبين'),
+const app = express();
+app.get('/', (req, res) => res.send('Bot is alive 🔥'));
+app.listen(3000, () => console.log('Web server running'));
 
-  new SlashCommandBuilder()
-    .setName('rank')
-    .setDescription('عرض رتبتك')
-].map(cmd => cmd.toJSON());
+let users = {};
+const cooldown = {};
 
-// ===== Register =====
-const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+// 📁 تحميل البيانات
+if (fs.existsSync('./data.json')) {
+  users = JSON.parse(fs.readFileSync('./data.json'));
+}
 
-(async () => {
-  try {
-    await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
-      { body: commands }
-    );
-    console.log('✅ Commands registered');
-  } catch (error) {
-    console.error(error);
-  }
-})();
+function saveData() {
+  fs.writeFileSync('./data.json', JSON.stringify(users, null, 2));
+}
 
-// ===== XP System =====
+// 🔥 XP SYSTEM
 client.on('messageCreate', message => {
   if (message.author.bot) return;
 
-  if (!users[message.author.id]) {
-    users[message.author.id] = { xp: 0, level: 1 };
+  const userId = message.author.id;
+
+  if (!users[userId]) {
+    users[userId] = { xp: 0, level: 1 };
+  } else {
+    users[userId].xp ??= 0;
+    users[userId].level ??= 1;
   }
 
-  users[message.author.id].xp += 10;
+  // ⏱️ Cooldown 15 ثانية
+  if (cooldown[userId] && Date.now() - cooldown[userId] < 15000) return;
+  cooldown[userId] = Date.now();
 
-  let neededXP = users[message.author.id].level * 100;
+  // 💎 XP عشوائي
+  users[userId].xp += Math.floor(Math.random() * 10) + 5;
 
-  if (users[message.author.id].xp >= neededXP) {
-    users[message.author.id].level++;
-    users[message.author.id].xp = 0;
+  let neededXP = users[userId].level * 100;
 
-    message.channel.send(`🔥 ${message.author} لفلت لـ ${users[message.author.id].level}`);
+  if (users[userId].xp >= neededXP) {
+    users[userId].level++;
+    users[userId].xp = 0;
+
+    message.channel.send(`🔥 ${message.author} لفلت لـ ${users[userId].level}`);
   }
 
-  saveData(); // 💾 نحفظ كل رسالة
+  saveData();
 });
 
-// ===== Commands =====
+// 🧠 COMMANDS
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  // ===== TOP =====
-  if (interaction.commandName === 'top') {
-    let sorted = Object.entries(users)
-      .sort((a, b) => b[1].xp - a[1].xp)
-      .slice(0, 10);
+  const userId = interaction.user.id;
 
-    let description = sorted.map((user, index) => {
-      let medal = index === 0 ? '👑' : `#${index + 1}`;
-      return `${medal} <@${user[0]}> | Level: ${user[1].level} | XP: ${user[1].xp}`;
-    }).join('\n');
-
-    const embed = new EmbedBuilder()
-      .setTitle('🏆 Top Players')
-      .setDescription(description || 'مافي بيانات')
-      .setColor('#8e44ad');
-
-    interaction.reply({ embeds: [embed] });
+  if (!users[userId]) {
+    users[userId] = { xp: 0, level: 1 };
   }
 
-  // ===== RANK =====
+  // 🔥 RANK
   if (interaction.commandName === 'rank') {
-    let user = interaction.user;
-
-    if (!users[user.id]) {
-      users[user.id] = { xp: 0, level: 1 };
-    }
-
-    let data = users[user.id];
-    let neededXP = data.level * 100;
-    let progress = ((data.xp / neededXP) * 100).toFixed(1);
+    const xp = users[userId].xp;
+    const level = users[userId].level;
+    const neededXP = level * 100;
+    const progress = ((xp / neededXP) * 100).toFixed(1);
 
     const embed = new EmbedBuilder()
       .setColor('#8e44ad')
-      .setTitle(`🔥 Rank - ${user.username}`)
-      .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+      .setTitle(`🔥 Rank - ${interaction.user.username}`)
+      .setThumbnail(interaction.user.displayAvatarURL())
       .addFields(
-        { name: '💎 Level', value: `${data.level}`, inline: true },
-        { name: '⚡ XP', value: `${data.xp} / ${neededXP}`, inline: true },
+        { name: '💎 Level', value: `${level}`, inline: true },
+        { name: '⚡ XP', value: `${xp}/${neededXP}`, inline: true },
         { name: '📊 Progress', value: `${progress}%`, inline: true }
       );
 
     interaction.reply({ embeds: [embed] });
   }
+
+  // 🏆 TOP
+  if (interaction.commandName === 'top') {
+    let sorted = Object.entries(users)
+      .map(([id, data]) => ({
+        id,
+        xp: data?.xp ?? 0,
+        level: data?.level ?? 1
+      }))
+      .sort((a, b) => b.xp - a.xp)
+      .slice(0, 10);
+
+    let description = sorted.map((user, index) => {
+      let medal = index === 0 ? '👑' : `#${index + 1}`;
+      let color = index === 0 ? '🟡' : index === 1 ? '⚪' : index === 2 ? '🟤' : '🔵';
+
+      return `${medal} ${color} <@${user.id}> | Level: ${user.level} | XP: ${user.xp}`;
+    }).join('\n');
+
+    const embed = new EmbedBuilder()
+      .setColor('#f1c40f')
+      .setTitle('🏆 Top Players')
+      .setDescription(description);
+
+    interaction.reply({ embeds: [embed] });
+  }
 });
 
-// ===== Ready =====
+// ✅ READY
 client.once('ready', () => {
-  console.log(`🔥 Logged in as ${client.user.tag}`);
+  console.log(`✅ Logged in as ${client.user.tag}`);
 });
 
-// ===== Login =====
+// 🔐 LOGIN
 client.login(process.env.TOKEN);
